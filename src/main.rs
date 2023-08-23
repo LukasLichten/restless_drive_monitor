@@ -15,18 +15,31 @@ async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_BACKTRACE", "1");
     
     if let Some(config) = get_config() {
+        println!("Launching Server on port {}", config.port);
 
         HttpServer::new(move || {
             let logger = Logger::default();
             let config = get_config().expect("We could load the config once, we can load it another time");
-    
+            
             let mut app = App::new()
             .wrap(logger)
             .service(api::get_ping)
             .service(api::get_drive_list);
+
+            if cfg!(target_os = "linux") {
+                if nix::unistd::Uid::effective().is_root() {
+                    println!("Smart support enabled"); // For some reason, this and the TrueNAS message, get printed twice
+
+                    app = app
+                    .service(api::get_smart_data)
+                    .service(api::get_smart_data_by_id);
+                }
+            }
     
             if config.use_truenas {
                 if let Some(client) = truenas::get_client(config.accept_invalid_certs) {
+                    println!("TrueNAS support enabled");
+
                     app = app
                         .app_data(Data::new(config))
                         .app_data(Data::new(client))

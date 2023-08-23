@@ -1,4 +1,4 @@
-use std::process::Command;
+use std::{process::Command, fs, path::PathBuf};
 
 use serde::Deserialize;
 
@@ -23,6 +23,11 @@ struct Blockdevice {
     drive_type: String,
     #[serde(rename = "maj:min")]
     maj_min: String,
+    model: Option<String>,
+    serial: Option<String>,
+    uuid: Option<String>, 
+    label: Option<String>, 
+    wwn: Option<String>,
 
     children: Option<Vec<Blockdevice>>
 }
@@ -34,6 +39,8 @@ pub fn get_blockdevices() -> Option<Vec<crate::data::Blockdevice>>{
 
     let output = Command::new("lsblk")
         .arg("-J")
+        .arg("-o")
+        .arg("NAME,MAJ:MIN,RM,SIZE,RO,TYPE,MOUNTPOINT,MODEL,SERIAL,UUID,LABEL,WWN")
         .output().ok()?;
 
     if let Ok(res) = serde_json::from_slice(output.stdout.as_slice()) {
@@ -45,10 +52,38 @@ pub fn get_blockdevices() -> Option<Vec<crate::data::Blockdevice>>{
 }
 
 pub fn get_disks() -> Option<Vec<crate::data::Blockdevice>> {
+    get_drive_id_list();
+
     Some(get_blockdevices()?
             .into_iter()
             .filter(|device| device.device_type.as_str() == "disk" )
             .collect())
+}
+
+pub fn get_drive_id_list() -> Option<Vec<(String, String)>> {
+    if cfg!(target_os = "windows") {
+        return None; 
+    }
+
+    // We retrieve the disk-by-id from the file system
+
+    let mut list = Vec::<(String, String)>::new();
+    let by_id_path = PathBuf::from("/dev/disk/by-id/");
+    let content = fs::read_dir(&by_id_path).ok()?;
+
+    for item in content {
+        if let Ok(item) = item {
+            if let Ok(link) = fs::read_link(item.path()) {
+                let id = item.path().file_name().expect("drisk by-id has to have a file name").to_str().expect("Filename should be string string").to_string();
+                if let Ok(target) = fs::canonicalize(by_id_path.clone().join(link)) {
+                    list.push((id, target.to_str().expect("disk path has to be a string").to_string()));
+                }
+                
+            }
+        }
+    }
+
+    Some(list)
 }
 
 impl Blocklist {
@@ -86,6 +121,30 @@ impl Blockdevice {
             0
         };
         
+        let mut disk_id = None;
+        if let Some(list) =  get_drive_id_list() {
+            let this_drive = format!("/dev/{}",self.name);
+
+
+            for (id, drive) in list {
+
+                if this_drive == drive {
+
+                    match &self.wwn {
+                        Some(wwn) => {
+                            if wwn != &id {
+                                disk_id = Some(id);
+                                break;
+                            }
+                        },
+                        None => {
+                            disk_id = Some(id);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
 
         let childs = if let Some(children) = self.children {
             Some(children.into_iter().map(|item| {
@@ -103,6 +162,13 @@ impl Blockdevice {
             mountpoint: self.mountpoint,
             device_type: self.drive_type,
             maj_min: self.maj_min,
+            model: self.model,
+            serial: self.serial,
+            uuid: self.uuid,
+            label: self.label,
+            world_wide_name: self.wwn,
+            disk_id,
+            
             children: childs
         }
     }

@@ -14,3 +14,4 @@ env_logger="0.10"
 reqwest = { version ="^0.11", features = ["json"] }
 url = { version = "2.3", features = ["serde"] }
 uuid = { version = "^1.3", features = ["v4", "serde"]}
+nix = "^0.26"

@@ -1,7 +1,7 @@
 use actix_web::{web::{Json, Data, Path}, get};
 use reqwest::Client;
 
-use crate::{smart, Config, data::{Blockdevice, Alert, AlertLevel}, truenas};
+use crate::{smart, Config, data::{Blockdevice, Alert, AlertLevel, Smart}, truenas};
 
 
 #[get("/ping")]
@@ -12,6 +12,34 @@ pub async fn get_ping() -> Json<String> {
 #[get("/drivelist")]
 pub async fn get_drive_list() -> Option<Json<Vec<Blockdevice>>> {
     Some(Json(smart::get_disks()?))
+}
+
+#[get("/smart/{drive}")]
+pub async fn get_smart_data(drive: Path<String>) -> Option<Json<Smart>> {
+    // Sanetize input
+    for item in smart::get_blockdevices()? {
+        if item.name == drive.clone() {
+            return smart_reader(drive.clone());
+        }
+    }
+
+    None
+}
+
+#[get("/smart/disk/by-id/{drive}")]
+pub async fn get_smart_data_by_id(drive: Path<String>) -> Option<Json<Smart>> {
+    // Sanetize input
+    for (id, _target) in smart::get_drive_id_list()? {
+        if id == drive.clone() {
+            return smart_reader(format!("disk/by-id/{}", drive).to_string());
+        }
+    }
+
+    None
+}
+
+fn smart_reader(drive: String) -> Option<Json<Smart>> {
+    return Some(Json(smart::get_smart(drive)?));
 }
 
 #[get("/alerts")]
