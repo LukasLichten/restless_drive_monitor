@@ -1,0 +1,13 @@
+[Unit]
+Description=Provides a Rest API to monitor Drivehealth
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/bin/restless_drive_monitor -c "/etc/restless_drive_monitor/rdm.conf"
+Type=Simple
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=default.target
