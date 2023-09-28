@@ -8,21 +8,31 @@ use std::fs;
 
 use actix_web::{HttpServer, App, middleware::Logger, web::Data};
 use clap::Parser;
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
+    env_logger::builder().filter_level(log::LevelFilter::Debug).init();
+    
+
     if args.install {
-        return installer::install();
+        let res = installer::install();
+        if let Err(e) = res {
+            error!("Failed to install properly");
+            return Err(e);
+        }
+
+        return Ok(()); 
     }
 
     std::env::set_var("RUST_LOG", "debug");
     std::env::set_var("RUST_BACKTRACE", "1");
     
     if let Some(config) = get_config() {
-        println!("Launching Server on port {}", config.port);
+        info!("Launching Server on port {}", config.port);
 
         HttpServer::new(move || {
             let logger = Logger::default();
@@ -35,7 +45,7 @@ async fn main() -> std::io::Result<()> {
 
             if cfg!(target_os = "linux") {
                 if nix::unistd::Uid::effective().is_root() {
-                    println!("Smart support enabled"); // For some reason, this and the TrueNAS message, get printed twice
+                    info!("Smart support enabled");
 
                     app = app
                     .service(api::get_smart_data)
@@ -45,7 +55,7 @@ async fn main() -> std::io::Result<()> {
     
             if config.use_truenas {
                 if let Some(client) = truenas::get_client(config.accept_invalid_certs) {
-                    println!("TrueNAS support enabled");
+                    info!("TrueNAS support enabled");
 
                     app = app
                         .app_data(Data::new(config))
@@ -61,7 +71,7 @@ async fn main() -> std::io::Result<()> {
         .run()
         .await
     } else {
-        println!("Failed to parse config file, aborting launch");
+        error!("Failed to parse config file, aborting launch");
         Ok(())
     }
 }
@@ -83,6 +93,17 @@ pub fn get_config() -> Option<Config> {
         None => "./rdm.conf".to_string()
     });
     if !path.exists() {
+        let file = fs::File::create(&path).ok()?;
+
+        if cfg!(target_os = "linux") {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut perm = file.metadata().ok()?.permissions();
+            perm.set_mode(0o600);
+            file.set_permissions(perm).ok()?;
+        }
+        
+
         fs::write(&path, serde_json::to_string_pretty(&Config {
             use_truenas: false, truenas_address: Some(url::Url::parse("http://localhost/").ok()?), truenas_token: "".to_string(),
             accept_invalid_certs: false, port: 30603
@@ -90,6 +111,16 @@ pub fn get_config() -> Option<Config> {
     } else if path.is_dir() {
         return None;
     }
+
+    if cfg!(target_os = "linux") {
+        use std::os::unix::fs::PermissionsExt;
+
+        let perm = fs::File::open(&path).ok()?.metadata().ok()?.permissions();
+        if perm.mode() != 0o600 && perm.mode() != 0o200 {
+            error!("Permission on config file are too broad, this presents a security risk, use 600 or 200");
+        }
+    }
+    
 
     Some(serde_json::from_slice(fs::read(&path).ok()?.as_slice()).ok()?)
 }
