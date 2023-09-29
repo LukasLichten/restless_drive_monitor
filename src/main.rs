@@ -4,18 +4,27 @@ pub mod truenas;
 pub mod data;
 mod installer;
 
+mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 use std::fs;
 
-use actix_web::{HttpServer, App, middleware::Logger, web::Data};
+//use actix_web::{HttpServer, App, middleware::Logger, web::Data};
 use clap::Parser;
 use log::{error, info};
+use poem::{Route, listener::TcpListener};
+use poem_openapi::OpenApiService;
 use serde::{Deserialize, Serialize};
 
-#[actix_web::main]
+//use crate::api::Api;
+
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
-    env_logger::builder().filter_level(log::LevelFilter::Debug).init();
+    let log_level = if built_info::DEBUG { log::LevelFilter::Debug } else { log::LevelFilter::Info };
+    env_logger::builder().filter_level(log_level).init();
     
 
     if args.install {
@@ -27,49 +36,21 @@ async fn main() -> std::io::Result<()> {
 
         return Ok(()); 
     }
-
-    std::env::set_var("RUST_LOG", "debug");
-    std::env::set_var("RUST_BACKTRACE", "1");
     
     if let Some(config) = get_config() {
-        info!("Launching Server on port {}", config.port);
+        let port = config.port;
+        info!("Launching Server on port {}", port);
 
-        HttpServer::new(move || {
-            let logger = Logger::default();
-            let config = get_config().expect("We could load the config once, we can load it another time");
-            
-            let mut app = App::new()
-            .wrap(logger)
-            .service(api::get_ping)
-            .service(api::get_drive_list);
+        let api_service = OpenApiService::new(api::new_api(config), "Restless Drive Monitor", built_info::PKG_VERSION).server("/v1.0");
+        
+        let doc = api_service.swagger_ui();
+        let app = Route::new()
+                .nest("/v1.0", api_service)
+                .nest("/doc", doc);
 
-            if cfg!(target_os = "linux") {
-                if nix::unistd::Uid::effective().is_root() {
-                    info!("Smart support enabled");
-
-                    app = app
-                    .service(api::get_smart_data)
-                    .service(api::get_smart_data_by_id);
-                }
-            }
-    
-            if config.use_truenas {
-                if let Some(client) = truenas::get_client(config.accept_invalid_certs) {
-                    info!("TrueNAS support enabled");
-
-                    app = app
-                        .app_data(Data::new(config))
-                        .app_data(Data::new(client))
-                        .service(api::get_alerts)
-                        .service(api::get_alerts_on_level)
-                }
-            }
-    
-            app
-        })
-        .bind(("0.0.0.0", config.port))?
-        .run()
-        .await
+        poem::Server::new(TcpListener::bind(format!("0.0.0.0:{}", port)))
+            .run(app)
+            .await
     } else {
         error!("Failed to parse config file, aborting launch");
         Ok(())
@@ -80,7 +61,7 @@ async fn main() -> std::io::Result<()> {
 pub struct Config {
     pub use_truenas: bool,
     pub truenas_address: Option<url::Url>,
-    pub truenas_token: String,
+    pub truenas_token: Option<String>,
     pub accept_invalid_certs: bool,
     pub port: u16
 }
@@ -105,7 +86,7 @@ pub fn get_config() -> Option<Config> {
         
 
         fs::write(&path, serde_json::to_string_pretty(&Config {
-            use_truenas: false, truenas_address: Some(url::Url::parse("http://localhost/").ok()?), truenas_token: "".to_string(),
+            use_truenas: false, truenas_address: Some(url::Url::parse("http://localhost/").ok()?), truenas_token: Some("".to_string()),
             accept_invalid_certs: false, port: 30603
         }).ok()?.as_bytes()).ok()?;
     } else if path.is_dir() {

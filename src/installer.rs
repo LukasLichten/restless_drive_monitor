@@ -49,7 +49,7 @@ pub fn install() -> io::Result<()> {
         .arg("daemon-reload")
         .output()?);
     
-    info!("Starting the Service...");
+    info!("Starting the 'restless-drive-monitor.service'...");
     print_output(Command::new("systemctl")
         .arg("start")
         .arg("restless-drive-monitor.service")

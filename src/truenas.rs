@@ -13,7 +13,7 @@ pub fn get_client(accept_invalid_certs: bool) -> Option<Client> {
 }
 
 
-pub async fn request(client: &Client, address: &Url, token: &String, api_function: String) -> Option<Vec<u8>> {
+pub async fn request(client: &Client, address: &Url, token: &String, api_function: &str) -> Option<Vec<u8>> {
     let target = address.join("/api/v2.0/").ok()?.join(&api_function).ok()?;
     let req = client.get(target).bearer_auth(token).build().ok()?;
     let res = client.execute(req).await.ok()?;
@@ -22,11 +22,16 @@ pub async fn request(client: &Client, address: &Url, token: &String, api_functio
 }
 
 pub async fn get_alerts(client: &Client, address: &Url, token: &String) -> Option<Vec<data::Alert>> {
-    let internal: Vec<InternalAlert> = serde_json::from_slice(request(client, address, token, "alert/list".to_string()).await?.as_slice()).ok()?;
+    let internal: Vec<InternalAlert> = serde_json::from_slice(request(client, address, token, "alert/list").await?.as_slice()).ok()?;
 
     Some(internal.into_iter().map(|item| {
         item.parse()
     }).collect())
+}
+
+pub async fn do_ping(client: &Client, address: &Url, token: &String) -> Option<bool> {
+    let text: String = serde_json::from_slice(request(client, address, token, "core/ping").await?.as_slice()).ok()?;
+    Some(text == "pong")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

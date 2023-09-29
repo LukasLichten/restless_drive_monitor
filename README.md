@@ -51,15 +51,17 @@ sudo systemctl restart restless-drive-monitor.service
 If you don't pass any arguments, then a rdm.conf will be created/used in the current folder.
 
 ### Reading:
-Follwing functions are available:
+Check out ```/doc``` for a full documentation after startup.
+
+Following functions are available (under prefix ```/v1.0```):
 ```
 /ping
 /drivelist
 /smart/[drive]
 /smart/disk/by-id/[drive]
 /alerts
-/alerts/[level]
 ```
+
 ```src/data.rs``` contains the datamodel for the api. If you want to use a rust aplication you can copy this file into your project and you have functioning parsing immediatly.
 
 ## Build
